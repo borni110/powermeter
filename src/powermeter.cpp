@@ -31,13 +31,42 @@
 #include "mqttclient.h"
 #include "ntp.h"
 
+//Watchdog hinzufügen
+#include <esp_task_wdt.h>
+#define WDT_TIMEOUT 120    // 120 seconds WDT
+#define WATCHDOGLED 13
+
+unsigned long start_time=0;
+unsigned long  last_time_wifi_test=0;
+unsigned long last_time_status=0;
+
 static bool APMODE = false;
 /*
  * 
  */
+
+const char* wl_status_to_string(wl_status_t status) {
+  switch (status) {
+    case WL_NO_SHIELD: return "WL_NO_SHIELD";
+    case WL_IDLE_STATUS: return "WL_IDLE_STATUS";
+    case WL_NO_SSID_AVAIL: return "WL_NO_SSID_AVAIL";
+    case WL_SCAN_COMPLETED: return "WL_SCAN_COMPLETED";
+    case WL_CONNECTED: return "WL_CONNECTED";
+    case WL_CONNECT_FAILED: return "WL_CONNECT_FAILED";
+    case WL_CONNECTION_LOST: return "WL_CONNECTION_LOST";
+    case WL_DISCONNECTED: return "WL_DISCONNECTED";
+  }
+}
+
+
 void connectWiFi() {
 
-  if ( APMODE == true ) return;
+  //Nach 1800 Sekunden im AP-Mode versucht er den Verbindungsaufbau mit dem WLAN
+  if (( APMODE == true ) && ((millis()-last_time_wifi_test)<180000)) return;
+  
+
+  last_time_wifi_test=millis();
+  
   /*
    * Check if WiFi connected
    */
@@ -50,10 +79,16 @@ void connectWiFi() {
     /*
      * start a new connection and wait for it
      */
+    //ZUnächst zurücksetzen
+    APMODE = false;
+
+    WiFi.begin( config_get_WlanSSID() , config_get_WlanPassord() );
     while ( WiFi.status() != WL_CONNECTED ){
-        WiFi.begin( config_get_WlanSSID() , config_get_WlanPassord() );
         delay(1000);
+        Serial.printf(".");
+
         if ( wlan_timeout <= 0 ) {
+          Serial.printf("WLAN-Timeout, aktiviere AP-MODE");
           APMODE = true;
           break;
         }
@@ -85,6 +120,8 @@ void setup()
   Serial.begin(115200);
   config_setup();
 
+  esp_task_wdt_init(WDT_TIMEOUT, true); //enable panic so ESP32 restarts
+  esp_task_wdt_add(NULL); //add current thread to WDT watch
   /*
    * scan for SSID, if noct, setup an own AP
    */
@@ -102,12 +139,14 @@ void setup()
     Serial.println(myIP);
     APMODE = true; 
   }
-
+  Serial.printf("WiFi Status: %d, AP-Mode: %d\n",WiFi.status(), APMODE);
   /*
    * Connect to WiFi
    */
   connectWiFi();
-
+  
+  //Startzeit übernehmen
+  start_time=millis();
   /*
    * Setup Tasks
    */
@@ -124,8 +163,28 @@ void setup()
  */
 void loop() {
   delay(10);
+  //Serial.println("Loop...");
+  
+  //Watchdog zurücksetzen
+  //Serial.println("Reset Watchdog...");
+  esp_task_wdt_reset();  
   /*
    * WiFi check status for reconnect
    */
+  if ((millis()-last_time_status)>10000){
+    Serial.printf("WiFi Status: %d, AP-Mode: %d\n",WiFi.status(), APMODE);
+    Serial.println(wl_status_to_string(WiFi.status()));
+    last_time_status=millis();
+  }
+  /*
+  if (( APMODE == true ) && (millis()-start_time)>90000){
+     Serial.println("Reset AP...");
+      //Im AP-Mode nach 30 Sekunden Reboot
+      ESP.restart();
+
+  }*/
+
   connectWiFi();
 }
+
+

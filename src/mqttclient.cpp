@@ -54,6 +54,8 @@ void onMqttConnect(bool sessionPresent) {
  */
 void onMqttDisconnect(AsyncMqttClientDisconnectReason reason) {
   log_i( "MQTT-Client: Disconnected from MQTT\r\n" );
+  //log_i( "MQTT-Client: User %s\r\n", config_get_MQTTUser());
+  //log_i(  "MQTT-Client: PW %s\r\n",config_get_MQTTPass());  
   if ( WiFi.isConnected() )
     if ( strlen( config_get_MQTTServer() ) >= 1 && disable_MQTT == false ) {
       mqttClient.connect();
